@@ -1,0 +1,830 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>App Review Triage</title>
+<meta name="description" content="A Claude Code skill that turns an App Store, Google Play, or Steam review page into a ranked list of what to fix first, with verbatim quotes as evidence.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito+Sans:opsz,wght@6..12,400;6..12,600;6..12,700;6..12,800;6..12,900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Signals to Solutions palette and type, laid out as an editorial page: full-width section bands,
+   heavy rules, offset-block shadows, and one small navy diagram (Fig. 1) for the animated demo. */
+:root {
+  --page: #F3EBE0;
+  --paper: #FFFFFF;
+  --warm: #FFFAF5;
+  --sand: #F6F1EA;
+  --line: #E2DCD2;
+  --ink: #14213A;
+  --body: #4B5670;
+  --muted: #69717C;
+  --rust: #C2521A;
+  --orange: #F08B49;
+  --orange-soft: #FBE7DB;
+  --mist: #CDD5E1;
+  --gold: #F0C27B;
+  --navy-2: #183355;
+  --on-navy: #FFFFFF;
+  --on-navy-soft: #D5DCE6;
+  --on-navy-muted: #B7C1D1;
+  --font: "Avenir Next", "Avenir", "Nunito Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body { margin: 0; background: var(--page); color: var(--body); font-family: var(--font); font-size: 17px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+a { color: var(--rust); text-underline-offset: 3px; }
+a:hover { color: var(--ink); }
+:focus-visible { outline: 2px solid var(--rust); outline-offset: 3px; border-radius: 4px; }
+img { max-width: 100%; height: auto; display: block; }
+h1, h2, h3, h4 { color: var(--ink); margin: 0; text-wrap: balance; }
+p { margin: 0; }
+code { font-family: var(--mono); font-size: .86em; white-space: nowrap; color: var(--ink); background: var(--sand); border: 1px solid var(--line); border-radius: 4px; padding: .05em .35em; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; }
+.mono { font-family: var(--mono); font-size: 13px; letter-spacing: .02em; }
+
+/* ---------- top bar ---------- */
+.top { position: sticky; top: 0; z-index: 20; background: rgba(243, 235, 224, .92); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 2px solid var(--ink); }
+.top .wrap { display: flex; align-items: center; gap: 28px; min-height: 58px; }
+.brand { display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; font-weight: 800; letter-spacing: -.01em; white-space: nowrap; }
+.brand svg { width: 24px; height: 24px; flex: none; }
+.links { display: flex; gap: 22px; margin-left: auto; font-size: 15px; }
+.links a { color: var(--body); text-decoration: none; font-weight: 600; white-space: nowrap; }
+.links a:hover, .links a[aria-current="true"] { color: var(--rust); }
+@media (max-width: 860px) {
+  html { scroll-padding-top: 104px; }
+  .top .wrap { flex-wrap: wrap; column-gap: 16px; }
+  .top .btn { margin-left: auto; }
+  .links { order: 3; flex: 0 0 calc(100% + 40px); margin: 0 -20px; padding: 0 20px 10px; overflow-x: auto; scrollbar-width: none; font-size: 14px; gap: 18px; }
+  .links::-webkit-scrollbar { display: none; }
+}
+
+/* ---------- buttons: square corners, offset block shadow ---------- */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font: inherit; font-weight: 700; font-size: 15px; line-height: 1; padding: 13px 18px; border-radius: 8px; border: 2px solid var(--ink); text-decoration: none; cursor: pointer; transition: transform .12s ease, box-shadow .12s ease; }
+.btn svg { width: 16px; height: 16px; flex: none; }
+.btn-ink { background: var(--ink); color: var(--on-navy); box-shadow: 4px 4px 0 var(--orange); }
+.btn-ink:hover { color: var(--on-navy); transform: translate(-1px, -1px); box-shadow: 5px 5px 0 var(--orange); }
+.btn-paper { background: var(--paper); color: var(--ink); }
+.btn-paper:hover { color: var(--ink); background: var(--warm); }
+.top .btn { padding: 8px 13px; font-size: 14px; box-shadow: 3px 3px 0 var(--orange); }
+
+/* ---------- hero ---------- */
+.hero { position: relative; padding-block: clamp(40px, 7vw, 84px) clamp(40px, 6vw, 72px); }
+.hero::before { content: ""; position: absolute; inset: 0; z-index: -1; background-image: radial-gradient(rgba(20, 33, 58, .1) 1px, transparent 1.3px); background-size: 22px 22px; -webkit-mask-image: linear-gradient(180deg, #000 30%, transparent); mask-image: linear-gradient(180deg, #000 30%, transparent); }
+.hero .wrap { display: grid; gap: 48px; align-items: center; }
+@media (min-width: 980px) { .hero .wrap { grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); gap: 56px; } }
+.kicker { color: var(--rust); font-weight: 600; }
+.hero h1 { margin-top: 18px; font-size: clamp(28px, 9vw, 64px); line-height: 1.02; font-weight: 800; letter-spacing: -.04em; }
+@media (min-width: 980px) { .hero h1 { font-size: clamp(40px, 3.9vw, 52px); } }
+.hl { background: linear-gradient(180deg, transparent 60%, rgba(240, 139, 73, .55) 60%, rgba(240, 139, 73, .55) 90%, transparent 90%); -webkit-box-decoration-break: clone; box-decoration-break: clone; padding-inline: 2px; }
+.byline { margin-top: 18px; display: flex; align-items: center; gap: 10px; font-size: 15px; color: var(--body); }
+.byline::before { content: ""; width: 22px; height: 2px; margin-top: .75em; background: var(--orange); flex: none; align-self: flex-start; }
+.byline b { color: var(--ink); }
+.hero-sub { margin-top: 18px; max-width: 54ch; font-size: clamp(17px, 1.7vw, 19px); }
+.hero-steps { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 10px; counter-reset: hs; max-width: 52ch; }
+.hero-steps li { counter-increment: hs; display: grid; grid-template-columns: 30px minmax(0, 1fr); font-size: 16px; line-height: 1.5; }
+.hero-steps li::before { content: counter(hs, decimal-leading-zero); font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--rust); padding-top: 2px; }
+.hero-steps b { color: var(--ink); }
+.cta { margin-top: 30px; display: flex; flex-wrap: wrap; gap: 14px; }
+.stats { margin-top: 40px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .8fr) minmax(0, 1.2fr); border-top: 2px solid var(--ink); }
+.stats div { padding: 14px 14px 0 0; min-width: 0; }
+.stats div + div { padding-left: 14px; border-left: 1px solid var(--line); }
+.stats b { display: block; color: var(--ink); font-size: 21px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.stats span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+@media (max-width: 480px) { .stats { grid-template-columns: minmax(0, 1fr); } .stats div + div { padding-left: 0; border-left: 0; border-top: 1px solid var(--line); } .stats div { padding-bottom: 10px; } }
+
+.video { margin: 0; min-width: 0; }
+.vframe { position: relative; aspect-ratio: 16 / 9; border: 2px solid var(--ink); border-radius: 12px; overflow: hidden; background: var(--ink); box-shadow: 12px 12px 0 var(--orange); }
+.vframe video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.vplay { position: absolute; inset: 0; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.vplay:focus-visible { outline-offset: -4px; }
+.vplay-icon { position: absolute; right: 14px; bottom: 14px; width: 52px; height: 52px; border-radius: 50%; background: var(--orange); border: 2px solid var(--ink); display: grid; place-items: center; transition: transform .15s ease; }
+.vplay:hover .vplay-icon { transform: scale(1.08); }
+.vplay-icon svg { width: 18px; height: 18px; margin-left: 3px; fill: var(--ink); }
+@media (max-width: 640px) { .vframe { box-shadow: 8px 8px 0 var(--orange); } .vplay-icon { right: 10px; bottom: 10px; width: 40px; height: 40px; } .vplay-icon svg { width: 14px; height: 14px; } }
+.video figcaption { margin-top: 18px; color: var(--muted); }
+
+/* ---------- sections ---------- */
+.sec { padding-block: clamp(52px, 7vw, 88px); border-top: 1px solid rgba(20, 33, 58, .08); }
+/* Each section gets its own full-width band so the page reads as distinct blocks. */
+.sec-white { background: #FFFFFF; }
+.sec-peach { background: #FDF0E7; }
+.sec-page { background: var(--page); }
+.sec-mist { background: #EDF0F5; }
+.sec-dots { background-color: var(--page); background-image: radial-gradient(rgba(20, 33, 58, .1) 1px, transparent 1.3px); background-size: 22px 22px; }
+.sec-head { border-top: 2px solid var(--ink); padding-top: 18px; display: grid; gap: 6px 28px; margin-bottom: 34px; }
+@media (min-width: 900px) { .sec-head { grid-template-columns: 180px minmax(0, 1fr); } .sec-head .lede { grid-column: 2; } }
+.num { color: var(--rust); font-weight: 600; padding-top: 10px; }
+.sec-head h2 { font-size: clamp(28px, 3.6vw, 42px); line-height: 1.08; font-weight: 800; letter-spacing: -.03em; }
+.lede { max-width: 62ch; }
+
+/* ---------- Fig. 1: one review moving through the skill (a diagram, styled like a blueprint) ---------- */
+.fig { position: relative; margin: 0; background-color: var(--ink); background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px); background-size: 24px 24px; color: var(--on-navy-soft); border-radius: 14px; padding: 16px 20px 14px; box-shadow: 10px 10px 0 var(--orange); }
+.fig-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px dashed rgba(255,255,255,.22); }
+.fig-head .mono { color: var(--orange); font-weight: 600; }
+.fig-row { display: grid; grid-template-columns: minmax(0, 1fr) 36px minmax(0, 1fr) 36px minmax(0, 1.1fr); align-items: stretch; }
+.stage { min-width: 0; border: 1.5px dashed rgba(255,255,255,.22); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; transition: border-color .3s ease; }
+.stage.on { border-style: solid; border-color: var(--orange); }
+.stage-lbl { display: flex; align-items: center; gap: 8px; color: var(--on-navy-muted); margin-bottom: 10px; }
+.stage-lbl b { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 4px; background: var(--orange); color: var(--ink); font-size: 12px; }
+.stage-cap { margin-top: auto; padding-top: 10px; font-size: 13.5px; line-height: 1.4; color: var(--on-navy-soft); }
+.stage-cap .who { font-size: 10.5px; padding: 1px 6px; margin-right: 4px; }
+.arrow { align-self: center; justify-self: center; width: 30px; height: 16px; fill: none; stroke: var(--orange); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.slot { position: relative; height: 112px; }
+.rv { position: absolute; inset: 0; background: var(--paper); border-radius: 8px; border-left: 4px solid var(--orange); padding: 9px 12px; overflow: hidden; }
+.stars { letter-spacing: 1px; color: var(--mist); font-size: 12px; }
+.stars i { font-style: normal; color: var(--gold); }
+.rv-text { margin-top: 3px; color: var(--ink); font-size: 14.5px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.slot.tags { display: flex; flex-wrap: wrap; align-content: center; gap: 8px; }
+.tag { font-family: var(--mono); font-size: 12.5px; font-weight: 500; padding: 3px 9px; border-radius: 5px; background: var(--sand); color: var(--body); border: 1px solid var(--line); }
+.tag.sev { background: var(--orange-soft); color: var(--rust); border-color: rgba(194, 82, 26, .25); }
+.tag.to { background: var(--orange); color: var(--ink); border-color: var(--orange); font-weight: 600; }
+.mini { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.mini li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; align-items: baseline; padding: 4px 8px; border-radius: 6px; border: 1px solid transparent; transition: background .3s ease, border-color .3s ease; }
+.mini span { color: var(--on-navy); font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini b { font-family: var(--mono); font-size: 13px; color: var(--on-navy); font-variant-numeric: tabular-nums; }
+.mini i { grid-column: 1 / -1; position: relative; height: 4px; border-radius: 2px; background: rgba(255,255,255,.12); }
+.mini i::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--w); border-radius: 2px; background: var(--mist); }
+.mini li.on { background: rgba(255,255,255,.06); border-color: var(--orange); }
+.mini li.on i::after { background: var(--orange); }
+.mini li.hit b { animation: bump .5s ease; }
+@keyframes bump { 40% { transform: scale(1.35); color: var(--orange); } }
+.flyer { position: absolute; z-index: 5; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 0 5px rgba(240, 139, 73, .3); pointer-events: none; }
+.fig-foot { margin-top: 12px; font-size: 13px; color: var(--on-navy-muted); }
+.pause { font: inherit; font-size: 12.5px; font-weight: 700; color: var(--on-navy); background: transparent; border: 1.5px solid rgba(255, 255, 255, .4); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+/* Phones: steps 1 and 2 side by side, step 3 underneath, captions hidden. */
+@media (max-width: 760px) {
+  .fig { padding: 12px 12px 10px; box-shadow: 6px 6px 0 var(--orange); }
+  .fig-head { padding-bottom: 10px; margin-bottom: 10px; }
+  .fig-row { grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr); row-gap: 4px; }
+  .a1 { width: 16px; }
+  .a2 { grid-column: 1 / -1; transform: rotate(90deg); height: 22px; }
+  #st-count { grid-column: 1 / -1; }
+  .stage { padding: 9px; }
+  .stage-lbl { margin-bottom: 8px; font-size: 12px; }
+  .stage-cap { display: none; }
+  .slot { height: 118px; }
+  .rv { padding: 8px 9px; }
+  .rv-text { font-size: 13px; -webkit-line-clamp: 4; }
+  .slot.tags { gap: 6px; }
+  .tag { font-size: 11px; padding: 2px 7px; }
+}
+.claude-line { margin-top: 22px; font-size: 16px; color: var(--body); }
+.claude-line .who { margin-right: 6px; }
+
+/* ---------- what you get: small thumbnail + clickable table of contents of the sample report ---------- */
+.get { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: 40px; align-items: start; }
+@media (max-width: 860px) { .get { grid-template-columns: minmax(0, 1fr); gap: 26px; } }
+.get-shot { margin: 0; }
+.shot { display: block; border: 2px solid var(--ink); border-radius: 10px; overflow: hidden; box-shadow: 10px 10px 0 var(--mist); background: var(--paper); }
+.shot img { aspect-ratio: 16 / 10; object-fit: cover; object-position: top; }
+@media (max-width: 860px) { .shot img { aspect-ratio: 16 / 8; } }
+.small { margin-top: 16px; font-size: 13.5px; color: var(--muted); }
+.files-label { color: var(--rust); font-weight: 600; }
+.toc { list-style: none; margin: 10px 0 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; counter-reset: toc; border-top: 1px solid var(--line); }
+.toc li { counter-increment: toc; border-bottom: 1px solid var(--line); }
+.toc a { display: flex; align-items: baseline; gap: 8px; padding: 8px 0; text-decoration: none; color: var(--body); white-space: nowrap; overflow: hidden; }
+.toc a::before { content: counter(toc, decimal-leading-zero); flex: none; width: 20px; font-family: var(--mono); font-size: 12.5px; color: var(--rust); }
+.toc b { color: var(--ink); font-size: 15.5px; }
+.toc span { font-size: 13.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.toc a:hover b { color: var(--rust); }
+@media (max-width: 560px) { .toc { grid-template-columns: minmax(0, 1fr); } .toc a { padding: 6px 0; } .shot img { aspect-ratio: 16 / 6; } .get { gap: 20px; } }
+.files-line { margin-top: 18px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.files-line .files-label { margin-right: 4px; }
+.uses { margin-top: 14px; font-size: 15px; }
+.get-btn { margin-top: 18px; }
+
+/* ---------- how it works ---------- */
+.who { display: inline-block; font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: .08em; padding: 3px 8px; border-radius: 4px; border: 1.5px solid var(--ink); color: var(--ink); background: var(--paper); }
+.who.jev { background: var(--orange); }
+.who.claude { background: var(--ink); color: var(--on-navy); }
+.pull { margin-top: 26px; font-size: clamp(19px, 2.2vw, 23px); line-height: 1.4; font-weight: 700; color: var(--ink); max-width: 46ch; letter-spacing: -.01em; }
+.pull::before { content: "“"; color: var(--orange); font-weight: 800; margin-right: 2px; }
+
+/* ---------- disclosure (methods, FAQ) ---------- */
+details { border-top: 1px solid var(--line); }
+details:last-of-type { border-bottom: 1px solid var(--line); }
+summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 2px; color: var(--ink); font-weight: 700; font-size: 17px; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; font-family: var(--mono); font-size: 20px; font-weight: 500; color: var(--rust); transition: transform .2s ease; flex: none; }
+details[open] > summary::after { transform: rotate(45deg); }
+details > div { padding: 0 2px 20px; font-size: 15.5px; max-width: 72ch; }
+details.wide > div { max-width: none; padding-bottom: 24px; }
+.methods-box { margin-top: 36px; background: var(--warm); border: 1.5px solid var(--ink); border-radius: 10px; padding: 4px 20px; }
+.methods-box details { border: 0; }
+.methods-box summary { font-size: 18px; }
+.methods-box summary small { font-weight: 600; color: var(--muted); font-size: 14.5px; }
+.methods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 32px; margin: 0; max-width: none; }
+@media (max-width: 700px) { .methods { grid-template-columns: minmax(0, 1fr); } }
+.methods dt { color: var(--ink); font-weight: 700; }
+.methods dd { margin: 4px 0 0; font-size: 15px; }
+.methods dd b { color: var(--ink); }
+.methods-box details > div { max-width: none; }
+.methods-intro { margin-bottom: 18px; }
+.methods-box .tested { margin-top: 22px; padding-top: 18px; border-top: 1px dashed var(--line); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 32px; }
+@media (max-width: 700px) { .methods-box .tested { grid-template-columns: minmax(0, 1fr); } }
+.tested h4 { font-size: 15px; }
+.tested ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 6px; font-size: 15px; }
+.tested b { color: var(--ink); }
+
+/* ---------- get started ---------- */
+/* Three folded panels; the summary line says what's inside so a closed panel still informs. */
+.acc { display: grid; gap: 14px; }
+.acc details.acc-item { background: var(--paper); border: 1.5px solid var(--ink); border-radius: 10px; transition: box-shadow .2s ease; }
+.acc details.acc-item[open] { box-shadow: 8px 8px 0 var(--orange); }
+.acc summary { padding: 16px 18px; }
+.acc-h { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; min-width: 0; }
+.acc-n { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 6px; background: var(--ink); color: var(--on-navy); font-family: var(--mono); font-size: 14px; }
+.acc-t { font-size: 19px; font-weight: 800; letter-spacing: -.01em; }
+.acc-m { color: var(--muted); font-weight: 400; }
+.acc details > .acc-body { max-width: none; padding: 4px 18px 22px; }
+.acc-body > .note:first-child { margin: 0 0 16px; }
+.steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 22px; counter-reset: s; }
+.steps > li { counter-increment: s; display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 14px; }
+.steps > li::before { content: counter(s); width: 30px; height: 30px; border-radius: 6px; display: grid; place-items: center; background: var(--ink); color: var(--on-navy); font-family: var(--mono); font-weight: 600; font-size: 14px; }
+.steps h4 { margin-top: 3px; font-size: 17px; }
+.steps p { font-size: 15.5px; margin-top: 2px; }
+.cmd { margin-top: 10px; display: flex; align-items: flex-start; gap: 8px; padding-right: 8px; background: var(--paper); border: 1.5px solid var(--ink); border-radius: 8px; min-width: 0; }
+.cmd pre { flex: 1; min-width: 0; margin: 0; padding: 12px 4px 12px 14px; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: 13px; line-height: 1.55; color: var(--ink); }
+.cmd pre::before { content: "$ "; color: var(--rust); }
+.cmd .ph { color: var(--rust); font-style: italic; }
+.copy { flex: none; margin-top: 8px; font: inherit; font-size: 12px; font-weight: 700; color: var(--ink); background: var(--sand); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.copy:hover { background: var(--orange-soft); }
+.copy.done { background: var(--orange); border-color: var(--orange); }
+.note { margin-top: 8px; font-size: 14px; color: var(--muted); }
+.checkins { list-style: none; padding: 0; margin: 0; position: relative; display: grid; gap: 18px; }
+.checkins::before { content: ""; position: absolute; left: 6px; top: 8px; bottom: 8px; width: 2px; background: var(--mist); }
+.checkins li { position: relative; padding-left: 30px; }
+.checkins li::before { content: ""; position: absolute; left: 0; top: 6px; width: 14px; height: 14px; border-radius: 50%; background: var(--page); border: 2px solid var(--ink); }
+.checkins li.gate::before { background: var(--orange); }
+.checkins h4 { font-size: 17px; }
+.checkins p { font-size: 15.5px; margin-top: 2px; }
+.table-wrap { margin-top: 0; overflow-x: auto; background: var(--paper); border: 1.5px solid var(--ink); border-radius: 8px; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-family: var(--mono); font-size: 11.5px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); background: var(--sand); }
+td { color: var(--ink); }
+tr:last-child td { border-bottom: 0; }
+tr.def td { background: var(--warm); font-weight: 700; }
+@media (max-width: 560px) { table { font-size: 14px; } th, td { padding: 8px 9px; white-space: normal; } }
+
+/* ---------- privacy (an FAQ item): what goes where, as short checklists ---------- */
+.flows { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 900px) { .flows { grid-template-columns: minmax(0, 1fr); } }
+.flow { background: var(--page); border: 1.5px solid var(--ink); border-radius: 10px; padding: 16px 18px 18px; min-width: 0; }
+.flow-k { color: var(--rust); font-weight: 600; }
+.flow h3 { margin-top: 2px; font-size: 19px; letter-spacing: -.01em; }
+.flow ul { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.flow li { font-size: 14px; padding: 3px 10px; border-radius: 999px; background: var(--paper); border: 1px solid var(--line); color: var(--ink); }
+.flow li::before { content: "✓ "; color: var(--rust); font-weight: 700; }
+.flow ul.no li { background: transparent; border-style: dashed; color: var(--muted); }
+.flow ul.no li::before { content: "✗ "; color: var(--muted); }
+.flow .sub { margin-top: 12px; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.flow .sub + ul { margin-top: 6px; }
+.cautions { margin-top: 18px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 900px) { .cautions { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 560px) { .flows { gap: 12px; } .flow { padding: 13px 14px 14px; } .flow h3 { font-size: 17px; } .flow ul { margin-top: 9px; gap: 5px; } .flow li { font-size: 13px; padding: 2px 9px; } .flow .sub { margin-top: 9px; } }
+.cautions p { padding-left: 14px; border-left: 3px solid var(--orange); font-size: 14.5px; }
+.cautions b { color: var(--ink); }
+
+/* ---------- feedback ---------- */
+.fb { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 40px; align-items: start; background: var(--warm); border: 1.5px solid var(--ink); border-radius: 10px; padding: clamp(20px, 3.5vw, 32px); box-shadow: 8px 8px 0 var(--orange-soft); }
+@media (max-width: 860px) { .fb { grid-template-columns: minmax(0, 1fr); gap: 24px; } }
+.fb-prompts { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.fb-prompts li { position: relative; padding-left: 26px; color: var(--ink); font-weight: 600; font-size: 16px; }
+.fb-prompts li::before { content: "?"; position: absolute; left: 0; top: 1px; width: 18px; height: 18px; border-radius: 4px; background: var(--orange); color: var(--ink); font-family: var(--mono); font-size: 12px; font-weight: 600; display: grid; place-items: center; }
+.fb-act .note:first-of-type { margin-top: 14px; }
+
+/* ---------- closing ---------- */
+.closing { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 24px; border-top: 2px solid var(--ink); padding-top: 28px; }
+.closing h2 { font-size: clamp(26px, 3.4vw, 38px); font-weight: 800; letter-spacing: -.03em; line-height: 1.1; }
+.closing h2 .hl { padding-inline: 0; }
+.closing p { margin-top: 6px; }
+.closing .cta { margin-top: 0; }
+footer { background: var(--ink); color: var(--on-navy-muted); padding-block: 24px 32px; font-size: 14.5px; }
+footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 24px; }
+footer a { color: var(--on-navy); }
+footer a:hover { color: var(--orange); }
+footer nav { display: flex; flex-wrap: wrap; gap: 18px; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="App Review Triage, back to top">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="1" y="1" width="22" height="22" rx="5" fill="#14213A"/>
+        <rect x="5" y="6" width="14" height="3" rx="1" fill="#F08B49"/>
+        <rect x="5" y="11" width="10" height="3" rx="1" fill="#FFFFFF"/>
+        <rect x="5" y="16" width="6" height="3" rx="1" fill="#CDD5E1"/>
+      </svg>
+      app-review-triage
+    </a>
+    <nav class="links" aria-label="Sections">
+      <a href="#get">What you get</a>
+      <a href="#how">How it works</a>
+      <a href="#start">Get started</a>
+      <a href="#faq">FAQ</a>
+      <a href="#feedback">Feedback</a>
+    </nav>
+    <a class="btn btn-ink" href="https://github.com/Ying8109/app-review-triage" target="_blank" rel="noopener">
+      <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- Hero -->
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="wrap">
+      <div>
+        <p class="kicker mono">Claude Code skill · labels by TypeSafe Jev · MIT</p>
+        <h1 id="hero-title">From review noise<br><span class="hl">to ranked evidence.</span></h1>
+        <p class="byline"><span>By <b>Ying Chen</b>, UX Researcher &amp; Writer of <a href="https://signalstosolutions.substack.com/" target="_blank" rel="noopener">Signals to Solutions</a> Substack</span></p>
+        <p class="hero-sub">Analyze public product reviews and give your team an evidence-backed starting point for your product research.</p>
+        <ol class="hero-steps">
+          <li><span><b>Reads</b> reviews from an App Store, Google Play, or Steam page: 300 by default, up to 10,000.</span></li>
+          <li><span><b>Labels</b> each one with <a href="https://typesafe.ai/" target="_blank" rel="noopener">TypeSafe.ai</a>'s Jev and sorts complaints into your product's own areas.</span></li>
+          <li><span><b>Ranks</b> the areas, with verbatim quotes as evidence.</span></li>
+        </ol>
+        <div class="cta">
+          <a class="btn btn-ink" href="#start">Get started</a>
+          <a class="btn btn-paper" href="sample-report.html" target="_blank" rel="noopener">Open the sample report ↗</a>
+        </div>
+        <div class="stats">
+          <div><b>~6 s · ~$0.10</b><span>estimated model time and Jev cost for 300 reviews</span></div>
+          <div><b>10,000</b><span>reviews per run, at most</span></div>
+          <div><b>3 review sources</b><span>App Store, Google Play, and Steam, plus CSV/JSON exports</span></div>
+        </div>
+      </div>
+      <figure class="video">
+        <div class="vframe">
+          <video id="intro" width="1920" height="1080" poster="assets/intro-poster.jpg?v=3" preload="none" playsinline aria-label="One-minute intro with music: public product reviews from the App Store, Google Play, Steam, or an export; product areas that fit your product; every review labeled by TypeSafe.ai's Jev; a ranked list with real quotes; what it costs; and how you approve each run.">
+            <source src="assets/intro.mp4?v=5" type="video/mp4">
+          </video>
+          <button class="vplay" id="vplay" type="button" aria-label="Play the one-minute intro video"><span class="vplay-icon"><svg viewBox="0 0 12 14" aria-hidden="true"><path d="M0 0l12 7-12 7z"/></svg></span></button>
+        </div>
+        <figcaption class="mono">▶ 1-minute intro, with sound</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- What you get -->
+  <section class="sec sec-white" id="get" aria-labelledby="get-title">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="num mono">01 / What you get</span>
+        <h2 id="get-title">A ranked report with real quotes</h2>
+      </div>
+      <div class="get">
+        <figure class="get-shot">
+          <a class="shot" href="sample-report.html" target="_blank" rel="noopener" aria-label="Open the sample report">
+            <img src="assets/report-preview.jpg" width="1440" height="1372" alt="Top of the sample report: the Todoist header, a 'what to fix first' summary naming sign-up and login, design, and pricing, and key-number tiles for 300 reviews." loading="lazy">
+          </a>
+          <figcaption class="small">Sample report: 300 public Google Play reviews of Todoist, shown without reviewer names.</figcaption>
+        </figure>
+        <div>
+          <p class="mono files-label">Inside the sample report</p>
+          <ol class="toc">
+            <li><a href="sample-report.html#summary" target="_blank" rel="noopener"><b>Summary</b><span>what to fix first</span></a></li>
+            <li><a href="sample-report.html#numbers" target="_blank" rel="noopener"><b>Key numbers</b><span>sentiment and ratings</span></a></li>
+            <li><a href="sample-report.html#areas" target="_blank" rel="noopener"><b>Product areas</b><span>ranked, with quotes</span></a></li>
+            <li><a href="sample-report.html#reviews" target="_blank" rel="noopener"><b>Reviews</b><span>bugs, requests, churn</span></a></li>
+            <li><a href="sample-report.html#versions" target="_blank" rel="noopener"><b>Versions</b><span>newest first</span></a></li>
+            <li><a href="sample-report.html#method" target="_blank" rel="noopener"><b>Method</b><span>how it was made</span></a></li>
+          </ol>
+          <p class="files-line"><span class="mono files-label">Each run saves</span><code>report.html</code><code>review_labels.csv</code><code>brief.md</code></p>
+          <p class="uses">Use it to check a release, size up a competitor, read a Steam patch's reception, or sort support tickets from a CSV export.</p>
+          <a class="btn btn-ink get-btn" href="sample-report.html" target="_blank" rel="noopener">Open the sample report ↗</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section class="sec sec-mist" id="how" aria-labelledby="how-title">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="num mono">02 / How it works</span>
+        <h2 id="how-title">Code counts, Jev labels, Claude explains</h2>
+      </div>
+      <figure class="fig" id="demo" aria-label="Diagram: how one review moves through the skill, using real quotes from the Todoist sample run">
+        <figcaption class="fig-head"><span class="mono">Fig. 1 · How one review moves through the skill</span><button class="pause" id="pause" type="button" aria-pressed="false">Pause</button></figcaption>
+        <div class="fig-row">
+          <div class="stage" id="st-in">
+            <p class="stage-lbl mono"><b>1</b>Review in</p>
+            <div class="slot" id="slot-review"></div>
+            <p class="stage-cap"><span class="who">CODE</span>fetches it from the store page</p>
+          </div>
+          <svg class="arrow a1" viewBox="0 0 30 16" aria-hidden="true"><path d="M2 8h22" stroke-dasharray="3 4"/><path d="M21 3l6 5-6 5"/></svg>
+          <div class="stage" id="st-jev">
+            <p class="stage-lbl mono"><b>2</b>Jev labels it</p>
+            <div class="slot tags" id="slot-tags"></div>
+            <p class="stage-cap"><span class="who jev">JEV</span>answers about 45 questions per review</p>
+          </div>
+          <svg class="arrow a2" viewBox="0 0 30 16" aria-hidden="true"><path d="M2 8h22" stroke-dasharray="3 4"/><path d="M21 3l6 5-6 5"/></svg>
+          <div class="stage" id="st-count">
+            <p class="stage-lbl mono"><b>3</b>Counted by area</p>
+            <ol class="mini" id="areas">
+              <li data-id="account_login"><span>Sign-up and login</span><b>23</b><i style="--w:100%"></i></li>
+              <li data-id="ui_design"><span>Design</span><b>20</b><i style="--w:87%"></i></li>
+              <li data-id="pricing_billing"><span>Pricing</span><b>19</b><i style="--w:83%"></i></li>
+              <li data-id="reminders"><span>Reminders</span><b>13</b><i style="--w:57%"></i></li>
+            </ol>
+            <p class="stage-cap"><span class="who">CODE</span>weights by severity and ranks</p>
+          </div>
+        </div>
+        <p class="fig-foot">Illustration only. A run ends with the HTML report shown above. Quotes and counts are real, from 300 Todoist reviews on Google Play.</p>
+      </figure>
+      <p class="claude-line"><span class="who claude">CLAUDE</span>drafts the product areas for your app, checks the results, and writes the summary from the numbers.</p>
+      <p class="pull">Every quote is a sentence copied from a review. Near 50/50 labels are left out of the counts and listed for a person to check.</p>
+
+      <div class="methods-box" id="methods">
+        <details>
+          <summary><span>How the numbers are made <small>· for researchers</small></span></summary>
+          <div>
+            <p class="methods-intro">Every Jev question, threshold, and weight is in one file, <a href="https://github.com/Ying8109/app-review-triage/blob/main/scripts/jev_questions.py" target="_blank" rel="noopener"><code>jev_questions.py</code></a>, where you can check or change them.</p>
+            <dl class="methods">
+              <div><dt>When a label counts</dt><dd>A label counts at 60% probability or higher. Between 40% and 60% it's left out of the counts and listed as borderline. Off-topic needs 75%, because it removes a review from every count.</dd></div>
+              <div><dt>Severity</dt><dd><b>Minor</b>: cosmetic, or a dislike of a design or business decision. <b>Degraded</b>: works poorly, or a feature is missing or removed. <b>Blocking</b>: the app or main task doesn't work, or the reviewer lost data or money.</dd></div>
+              <div><dt>Priority</dt><dd>Each problem review adds 1 + severity (0–3) + 2 if the reviewer mentions leaving + 1 if they tie it to an update. Areas rank by that sum.</dd></div>
+              <div><dt>Likely rank</dt><dd>Reviews are resampled 500 times with a fixed seed. "Likely #1–3" is the middle 90% of an area's ranks; overlapping ranges mean the order isn't settled.</dd></div>
+              <div><dt>Trends</dt><dd>Reviews are split at the median date. "Fewer" or "more lately" needs a one-sided Fisher exact p &lt; 0.025, Holm-adjusted for the number of areas tested, and at least 6 complaints.</dd></div>
+              <div><dt>Counts</dt><dd>One review can count toward several areas, so area counts add up to more than the number of problem reviews.</dd></div>
+            </dl>
+            <div class="tested">
+              <div><h4>What we've tested</h4><ul>
+                <li><b>Repeatability.</b> 5 reruns on the same 300 reviews for 3 apps changed 0.2–0.4% of label decisions; the top 3 areas held (one app swapped #2 and #3).</li>
+                <li><b>Sampling noise.</b> At 300 reviews only the top 2 to 4 areas were reliably ordered; at 10,000 the top 4 ranges were one or two places wide.</li>
+              </ul></div>
+              <div><h4>What we haven't tested</h4><ul>
+                <li><b>Agreement with human coders.</b> No study yet compares Jev's labels with a researcher's codes. Spot-check quotes and borderline reviews before you cite a number.</li>
+                <li><b>Who writes reviews.</b> Reviewers self-select and lean toward strong feelings. The report describes them, not your whole user base.</li>
+              </ul></div>
+            </div>
+          </div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- Get started -->
+  <section class="sec sec-page" id="start" aria-labelledby="start-title">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="num mono">03 / Get started</span>
+        <h2 id="start-title">Set it up once, then paste a link</h2>
+        <p class="lede">You need <a href="https://docs.claude.com/en/docs/claude-code/overview" target="_blank" rel="noopener">Claude Code</a> and a <a href="https://console.typesafe.ai/keys" target="_blank" rel="noopener">TypeSafe API key</a> (TypeSafe bills per use). You won't write code.</p>
+      </div>
+      <div class="acc">
+        <details class="acc-item" id="acc-setup">
+          <summary><span class="acc-h"><b class="acc-n">1</b><span class="acc-t">Set up once</span><span class="acc-m mono">4 steps · about 5 min</span></span></summary>
+          <div class="acc-body">
+            <p class="note">Paste each command into a terminal and press Return.</p>
+            <ol class="steps">
+              <li><div><h4>Clone the skill into your skills folder</h4>
+                <div class="cmd"><pre id="c1">git clone https://github.com/Ying8109/app-review-triage.git ~/.claude/skills/app-review-triage</pre><button class="copy" type="button" data-copy="c1">Copy</button></div>
+                <p class="note">If your Mac asks to install developer tools, say yes. For one project only, clone into that project's <code>.claude/skills/</code> instead.</p></div></li>
+              <li><div><h4>Install uv</h4>
+                <div class="cmd"><pre id="c2">curl -LsSf https://astral.sh/uv/install.sh | sh</pre><button class="copy" type="button" data-copy="c2">Copy</button></div>
+                <p class="note">Or <code>brew install uv</code>. On Windows or without uv, see the <a href="https://github.com/Ying8109/app-review-triage#install" target="_blank" rel="noopener">README</a>.</p></div></li>
+              <li><div><h4>Add your TypeSafe key to <code>~/.zshrc</code> or <code>~/.bashrc</code></h4>
+                <div class="cmd"><pre id="c3">export TYPESAFE_API_KEY="<span class="ph">your-key-here</span>"</pre><button class="copy" type="button" data-copy="c3">Copy</button></div>
+                <p class="note">On Windows: <code>setx TYPESAFE_API_KEY "your-key-here"</code>. Never paste the key into a chat.</p></div></li>
+              <li><div><h4>Start a new Claude Code session</h4><p>From a new terminal, or a new session in the desktop app. Claude Code finds the skill on its own.</p></div></li>
+            </ol>
+          </div>
+        </details>
+        <details class="acc-item">
+          <summary><span class="acc-h"><b class="acc-n">2</b><span class="acc-t">Each run</span><span class="acc-m mono">Claude checks in 3 times</span></span></summary>
+          <div class="acc-body">
+            <ol class="checkins">
+              <li><h4>Paste a review link</h4><p>Ask in your own words, or type <code>/app-review-triage</code>.</p></li>
+              <li class="gate"><h4>Answer four questions</h4><p>Is your key set (never the key itself), which product and link, what to categorize, and how many reviews. Claude repeats your answers back.</p></li>
+              <li class="gate"><h4>Approve the run plan</h4><p>Dates, product areas, what goes to TypeSafe and Anthropic, and the estimated time and cost. Nothing goes to Jev until you say "run it".</p></li>
+              <li class="gate"><h4>Open the report</h4><p>Claude opens it in your browser and recaps what you asked for against what was analyzed.</p></li>
+            </ol>
+          </div>
+        </details>
+        <details class="acc-item">
+          <summary><span class="acc-h"><b class="acc-n">3</b><span class="acc-t">Time and cost</span><span class="acc-m mono">300 reviews ≈ 6 s, $0.10</span></span></summary>
+          <div class="acc-body">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Reviews</th><th>Model time</th><th>Jev cost</th><th>Report</th></tr></thead>
+                <tbody>
+                  <tr class="def"><td>300 (default)</td><td>~6 s</td><td>~$0.10</td><td>~0.5 MB</td></tr>
+                  <tr><td>1,000</td><td>~20 s</td><td>~$0.30</td><td>~1.2 MB</td></tr>
+                  <tr><td>5,000</td><td>~1.5 min</td><td>~$1.50</td><td>~5 MB</td></tr>
+                  <tr><td>10,000 (max)</td><td>~3 min</td><td>~$3</td><td>~10 MB</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="note">Estimates from test runs with <code>jev-1.13.0</code> and about 18 areas; yours vary with review length and TypeSafe's pricing. Apple's public feed stops at 500 reviews, so use an App Store Connect export for more. Interrupted runs resume where they stopped.</p>
+          </div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="sec sec-mist" id="faq" aria-labelledby="faq-title">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="num mono">04 / FAQ</span>
+        <h2 id="faq-title">Questions</h2>
+      </div>
+      <details id="privacy" class="wide"><summary>What leaves my machine?</summary><div>
+        <div class="flows">
+          <div class="flow">
+            <p class="flow-k mono">Sent to</p>
+            <h3>TypeSafe, for Jev's labels</h3>
+            <ul><li>Review title</li><li>Review text</li><li>App name</li></ul>
+            <p class="sub">Not sent</p>
+            <ul class="no"><li>Star rating</li><li>Date</li><li>App version</li></ul>
+          </div>
+          <div class="flow">
+            <p class="flow-k mono">Sent to</p>
+            <h3>Anthropic, while Claude works</h3>
+            <ul><li>A sample of reviews</li><li>The summary: counts, ratings, quotes</li></ul>
+          </div>
+          <div class="flow">
+            <p class="flow-k mono">Your secret</p>
+            <h3>TypeSafe API key</h3>
+            <ul><li>Read from your environment</li><li>Never printed or saved to a file</li><li>Claude never asks for it</li></ul>
+          </div>
+        </div>
+        <div class="cautions">
+          <p><b>Reviews are treated as untrusted.</b> Fields are escaped, formula-like CSV cells get an apostrophe, and Claude is told to ignore instructions inside reviews. This lowers the risk but can't remove it.</p>
+          <p><b>Before you share a report,</b> remember it contains every analyzed review in full, which may include an email address or order number. Private exports end up in it too.</p>
+        </div>
+      </div></details>
+      <details><summary>What does a run cost?</summary><div>In our tests, Jev cost roughly $0.06 to $0.10 per 300 reviews. Treat that as an estimate. Longer reviews and more product areas cost more, and TypeSafe sets its own prices. Claude's own steps count toward your usual Claude Code usage.</div></details>
+      <details><summary>How accurate are the labels?</summary><div>Repeat runs agree closely, but no study yet compares the labels with human coders. Near 50/50 labels are left out of the counts and listed for a person to check, and each rank comes with a likely range. See <a href="#methods">How the numbers are made</a>.</div></details>
+      <details><summary>Can I put these numbers in a readout?</summary><div>Yes, as a triage of what reviewers say. Quote the rank range with each rank, check the quotes you use against the review, and say the sample is public reviewers, not all users.</div></details>
+      <details><summary>Can I use my own product areas?</summary><div>Yes. Name your features or areas and the skill tells Claude to use them as you wrote them, adding only what's missing. You can also shape the areas around one research question.</div></details>
+      <details><summary>Which languages work?</summary><div>English works best. Other languages are labeled but flagged in the report.</div></details>
+      <details><summary>What about review sites like Trustpilot?</summary><div>Pages with structured review data often work directly. For others, Claude can try reading the page in a browser, but some sites block this or show only a few hundred reviews.</div></details>
+    </div>
+  </section>
+
+  <!-- Feedback -->
+  <section class="sec sec-peach" id="feedback" aria-labelledby="feedback-title">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="num mono">05 / Feedback</span>
+        <h2 id="feedback-title">Tell me how it went</h2>
+        <p class="lede">Email me what you used it for, what worked, and what confused you.</p>
+      </div>
+      <div class="fb">
+        <ul class="fb-prompts">
+          <li>Which app or store did you run it on, and how many reviews?</li>
+          <li>Did the ranked areas match what your team already knew?</li>
+          <li>Where did setup or a run get stuck?</li>
+          <li>What would make you use it again?</li>
+        </ul>
+        <div class="fb-act">
+          <a class="btn btn-ink js-mail" href="#feedback" data-u="yingchenpm" data-d="gmail.com">Email your feedback</a>
+          <p class="note">Opens your email app with a short template. You can also write to <span class="js-mail-text">yingchenpm at gmail dot com</span>. Please don't include your API key or private review data.</p>
+          <p class="note">For bugs, <a href="https://github.com/Ying8109/app-review-triage/issues" target="_blank" rel="noopener">open a GitHub issue</a> so others can see the fix.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec sec-dots" aria-labelledby="close-title">
+    <div class="wrap">
+      <div class="closing">
+        <div>
+          <h2 id="close-title">See what your reviewers <span class="hl">want fixed.</span></h2>
+          <p>Free to download. MIT license.</p>
+        </div>
+        <div class="cta">
+          <a class="btn btn-ink" href="https://github.com/Ying8109/app-review-triage" target="_blank" rel="noopener">Get it on GitHub</a>
+          <a class="btn btn-paper" href="sample-report.html" target="_blank" rel="noopener">Open the sample report ↗</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Created by Ying Chen, UX Researcher &amp; writer of <a href="https://signalstosolutions.substack.com/" target="_blank" rel="noopener">Signals to Solutions newsletter</a>.</p>
+    <nav aria-label="Footer">
+      <a href="https://github.com/Ying8109/app-review-triage" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/Ying8109/app-review-triage#readme" target="_blank" rel="noopener">README</a>
+      <a href="#feedback">Send feedback</a>
+      <a href="https://github.com/Ying8109/app-review-triage/issues" target="_blank" rel="noopener">Report a problem</a>
+      <a href="https://github.com/Ying8109/app-review-triage/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
+      <a href="https://docs.typesafe.ai" target="_blank" rel="noopener">TypeSafe docs</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+// Fig. 1: one review at a time moves from "review in" to Jev's labels to its area's count.
+(function () {
+  // Real quotes from the Todoist sample run (verbatim, including reviewers' typos), with Jev's labels.
+  var REVIEWS = [
+    { stars: 1, text: "I get \"Capcha verification failed.\"", tags: ["blocking", "bug"], area: "account_login", areaName: "Sign-up and login" },
+    { stars: 2, text: "reminders not working", tags: ["degraded", "bug"], area: "reminders", areaName: "Reminders" },
+    { stars: 1, text: "Immediately ran into project count pay wall.", tags: ["blocking", "churn"], area: "pricing_billing", areaName: "Pricing" },
+    { stars: 3, text: "I strongly dislike the new layout changes that added borders and boxes to the list items.", tags: ["minor", "since update"], area: "ui_design", areaName: "Design" },
+    { stars: 1, text: "Figuring out how to delete the account took ten minutes. huge waste of time", tags: ["degraded", "churn"], area: "account_login", areaName: "Sign-up and login" },
+    { stars: 1, text: "As soon as I learned you have to PAY to use a calendar view, this app because as good as useless to me.", tags: ["blocking", "churn"], area: "pricing_billing", areaName: "Pricing" },
+    { stars: 2, text: "Many cool freatures but missed important things because notification did not work.", tags: ["degraded", "bug"], area: "reminders", areaName: "Reminders" },
+    { stars: 1, text: "to complicated ... uninstalled", tags: ["blocking", "churn"], area: "ui_design", areaName: "Design" }
+  ];
+  var SEV = { blocking: 1, degraded: 1, minor: 1 };
+  var fig = document.getElementById("demo");
+  var slotR = document.getElementById("slot-review"), slotT = document.getElementById("slot-tags");
+  var stages = { in: document.getElementById("st-in"), jev: document.getElementById("st-jev"), count: document.getElementById("st-count") };
+  var areas = document.getElementById("areas");
+  var pauseBtn = document.getElementById("pause");
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function reviewCard(r) {
+    var d = document.createElement("div");
+    d.className = "rv";
+    var st = '<div class="stars" role="img" aria-label="' + r.stars + ' star' + (r.stars > 1 ? "s" : "") + '">';
+    for (var i = 0; i < 5; i++) st += i < r.stars ? "<i>★</i>" : "★";
+    d.innerHTML = st + "</div>";
+    var p = document.createElement("p");
+    p.className = "rv-text";
+    p.textContent = "“" + r.text + "”";
+    d.appendChild(p);
+    return d;
+  }
+  function tags(r) {
+    return r.tags.concat(["→ " + r.areaName]).map(function (t, i) {
+      var s = document.createElement("span");
+      s.className = "tag" + (SEV[t] ? " sev" : "") + (i === r.tags.length ? " to" : "");
+      s.textContent = t;
+      return s;
+    });
+  }
+  function on(name) { Object.keys(stages).forEach(function (k) { stages[k].classList.toggle("on", k === name); }); }
+  function highlight(id, bump) {
+    Array.prototype.forEach.call(areas.children, function (row) {
+      var hit = row.dataset.id === id;
+      row.classList.toggle("on", hit);
+      if (hit && bump) { row.classList.remove("hit"); void row.offsetWidth; row.classList.add("hit"); }
+    });
+  }
+  function center(el) {
+    var f = fig.getBoundingClientRect(), r = el.getBoundingClientRect();
+    return { x: r.left - f.left + r.width / 2, y: r.top - f.top + r.height / 2 };
+  }
+  function fly(from, to, done) {
+    var a = center(from), b = center(to);
+    var dot = document.createElement("span");
+    dot.className = "flyer";
+    dot.style.left = a.x + "px"; dot.style.top = a.y + "px";
+    fig.appendChild(dot);
+    var dx = b.x - a.x, dy = b.y - a.y;
+    var anim = dot.animate([
+      { transform: "translate(0,0)", opacity: 1 },
+      { transform: "translate(" + dx / 2 + "px," + (dy / 2 - 24) + "px)", opacity: 1, offset: .5 },
+      { transform: "translate(" + dx + "px," + dy + "px) scale(.6)", opacity: .3 }
+    ], { duration: 600, easing: "ease-in-out" });
+    anim.onfinish = function () { dot.remove(); done(); };
+  }
+
+  // Resting state: the first review, labeled and counted.
+  var next = 1;
+  slotR.appendChild(reviewCard(REVIEWS[0]));
+  tags(REVIEWS[0]).forEach(function (t) { slotT.appendChild(t); });
+  highlight(REVIEWS[0].area, false);
+  if (reduce) { pauseBtn.hidden = true; return; }
+
+  var paused = false, inView = true, timer = null, busy = false;
+  function step() {
+    if (busy) return;
+    busy = true;
+    var r = REVIEWS[next];
+    next = (next + 1) % REVIEWS.length;
+    on("in");
+    slotR.textContent = "";
+    var card = reviewCard(r);
+    slotR.appendChild(card);
+    card.animate([{ opacity: 0, transform: "translateX(-16px)" }, { opacity: 1, transform: "none" }], { duration: 400, easing: "ease-out" });
+    Array.prototype.forEach.call(slotT.children, function (t) { t.style.transition = "opacity .25s"; t.style.opacity = 0; });
+    setTimeout(function () {
+      fly(card, slotT, function () {
+        on("jev");
+        slotT.textContent = "";
+        tags(r).forEach(function (t, i) {
+          slotT.appendChild(t);
+          t.animate([{ opacity: 0, transform: "scale(.7)" }, { opacity: 1, transform: "none" }], { duration: 280, delay: i * 140, fill: "backwards", easing: "ease-out" });
+        });
+        setTimeout(function () {
+          fly(slotT.lastChild, areas.querySelector('[data-id="' + r.area + '"] b'), function () {
+            on("count");
+            highlight(r.area, true);
+            busy = false;
+          });
+        }, 750);
+      });
+    }, 800);
+  }
+  function schedule() {
+    clearInterval(timer); timer = null;
+    if (!paused && inView && !document.hidden) timer = setInterval(step, 3600);
+  }
+  pauseBtn.addEventListener("click", function () {
+    paused = !paused;
+    pauseBtn.textContent = paused ? "Play" : "Pause";
+    pauseBtn.setAttribute("aria-pressed", String(paused));
+    schedule();
+  });
+  document.addEventListener("visibilitychange", schedule);
+  if ("IntersectionObserver" in window) {
+    new IntersectionObserver(function (es) { inView = es[0].isIntersecting; schedule(); }, { threshold: 0.3 }).observe(fig);
+  }
+  schedule();
+})();
+
+// Intro video: poster first, play on click.
+(function () {
+  var v = document.getElementById("intro"), b = document.getElementById("vplay");
+  if (!v || !b) return;
+  function play() { b.hidden = true; v.controls = true; var p = v.play(); if (p && p.catch) p.catch(function () { b.hidden = false; }); }
+  b.addEventListener("click", play);
+  v.addEventListener("ended", function () { v.controls = false; b.setAttribute("aria-label", "Replay the intro video"); b.hidden = false; });
+})();
+
+// Links to #start open the "Set up once" panel.
+document.querySelectorAll('a[href="#start"]').forEach(function (a) {
+  a.addEventListener("click", function () { var d = document.getElementById("acc-setup"); if (d) d.open = true; });
+});
+
+// "How the numbers are made" links open the methods panel.
+document.querySelectorAll('a[href="#methods"]').forEach(function (a) {
+  a.addEventListener("click", function () { var d = document.querySelector("#methods details"); if (d) d.open = true; });
+});
+
+// Section nav: mark the section in view, and keep its link visible in the swipeable row.
+(function () {
+  var links = document.querySelectorAll(".links a");
+  if (!("IntersectionObserver" in window) || !links.length) return;
+  var byId = {};
+  links.forEach(function (a) { byId[a.getAttribute("href").slice(1)] = a; });
+  var current = null;
+  var io = new IntersectionObserver(function (es) {
+    es.forEach(function (e) {
+      if (e.isIntersecting) current = e.target.id;
+      else if (current === e.target.id) current = null;
+    });
+    links.forEach(function (a) { a.removeAttribute("aria-current"); });
+    if (!current) return;
+    var a = byId[current], row = a.parentNode;
+    a.setAttribute("aria-current", "true");
+    if (row.scrollWidth > row.clientWidth) row.scrollTo({ left: a.offsetLeft - row.offsetLeft - 20, behavior: "smooth" });
+  }, { rootMargin: "-30% 0px -65% 0px" });
+  Object.keys(byId).forEach(function (id) { var el = document.getElementById(id); if (el) io.observe(el); });
+})();
+
+// Feedback email: the address is assembled here so it isn't sitting in the page source for scrapers.
+(function () {
+  var subject = "app-review-triage feedback";
+  var body = [
+    "Hi Ying,", "",
+    "What I used it for (app, store, number of reviews):", "",
+    "What worked:", "",
+    "What didn't work or confused me:", "",
+    "What would make me use it again:", "",
+    "(Please don't include your API key or private review data.)"
+  ].join("\n");
+  document.querySelectorAll(".js-mail").forEach(function (a) {
+    var addr = a.dataset.u + "@" + a.dataset.d;
+    a.href = "mailto:" + addr + "?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body);
+    document.querySelectorAll(".js-mail-text").forEach(function (t) {
+      var link = document.createElement("a");
+      link.href = "mailto:" + addr + "?subject=" + encodeURIComponent(subject);
+      link.textContent = addr;
+      t.replaceWith(link);
+    });
+  });
+})();
+
+// Copy buttons
+document.querySelectorAll(".copy").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    var pre = document.getElementById(btn.dataset.copy);
+    var text = pre.textContent;
+    function done() { btn.textContent = "Copied"; btn.classList.add("done"); setTimeout(function () { btn.textContent = "Copy"; btn.classList.remove("done"); }, 1600); }
+    function fallback() { var r = document.createRange(); r.selectNodeContents(pre); var s = getSelection(); s.removeAllRanges(); s.addRange(r); btn.textContent = /Mac|iP(hone|ad)/.test(navigator.platform) ? "Press ⌘C" : "Press Ctrl+C"; setTimeout(function () { btn.textContent = "Copy"; }, 4000); }
+    try { navigator.clipboard.writeText(text).then(done, fallback); } catch (e) { fallback(); }
+  });
+});
+</script>
+</body>
+</html>
